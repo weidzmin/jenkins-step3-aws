@@ -1,0 +1,152 @@
+---
+- name: Configure Jenkins Worker Node
+  hosts: jenkins_worker
+  become: yes
+  vars:
+    jenkins_user: "jenkins"
+    jenkins_home: "/home/jenkins"
+    jenkins_master_url: "http://{{ hostvars['jenkins-master']['ansible_default_ipv4']['address'] }}:8080"
+    
+  tasks:
+    - name: Update system packages
+      yum:
+        name: '*'
+        state: latest
+        update_cache: yes
+
+    - name: Install required packages
+      yum:
+        name:
+          - git
+          - curl
+          - wget
+          - java-11-openjdk
+          - java-11-openjdk-devel
+          - python3
+          - python3-pip
+        state: present
+
+    - name: Create jenkins user
+      user:
+        name: "{{ jenkins_user }}"
+        home: "{{ jenkins_home }}"
+        shell: /bin/bash
+        create_home: yes
+        system: no
+
+    - name: Create .ssh directory for jenkins user
+      file:
+        path: "{{ jenkins_home }}/.ssh"
+        state: directory
+        owner: "{{ jenkins_user }}"
+        group: "{{ jenkins_user }}"
+        mode: '0700'
+
+    - name: Set up SSH key for jenkins user
+      copy:
+        content: "{{ ssh_public_key }}"
+        dest: "{{ jenkins_home }}/.ssh/authorized_keys"
+        owner: "{{ jenkins_user }}"
+        group: "{{ jenkins_user }}"
+        mode: '0600'
+      when: ssh_public_key is defined
+
+    - name: Add jenkins user to docker group
+      user:
+        name: "{{ jenkins_user }}"
+        groups: docker
+        append: yes
+      when: ansible_service_mgr == "systemd"
+
+    - name: Create Jenkins agent directory
+      file:
+        path: "{{ jenkins_home }}/agent"
+        state: directory
+        owner: "{{ jenkins_user }}"
+        group: "{{ jenkins_user }}"
+        mode: '0755'
+
+    - name: Set Java home for jenkins user
+      lineinfile:
+        path: "{{ jenkins_home }}/.bashrc"
+        line: 'export JAVA_HOME=/usr/lib/jvm/java-11-openjdk'
+        create: yes
+        owner: "{{ jenkins_user }}"
+        group: "{{ jenkins_user }}"
+
+    - name: Install Docker Compose
+      pip:
+        name: docker-compose
+        executable: pip3
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Test Java installation
+      command: java -version
+      register: java_version
+      changed_when: false
+
+    - name: Display Java version
+      debug:
+        var: java_version.stderr_lines
+
+    - name: Test Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Display Docker version
+      debug:
+        var: docker_version.stdout
+
+    - name: Create simple test script
+      copy:
+        content: |
+          #!/bin/bash
+          echo "Jenkins Worker Node Test"
+          echo "========================"
+          echo "Hostname: $(hostname)"
+          echo "Date: $(date)"
+          echo "Java Version:"
+          java -version
+          echo ""
+          echo "Docker Version:"
+          docker --version
+          echo ""
+          echo "Available space:"
+          df -h /
+          echo ""
+          echo "Worker node is ready for Jenkins!"
+        dest: "{{ jenkins_home }}/test-worker.sh"
+        owner: "{{ jenkins_user }}"
+        group: "{{ jenkins_user }}"
+        mode: '0755'
+
+    - name: Run worker test script
+      command: "{{ jenkins_home }}/test-worker.sh"
+      become_user: "{{ jenkins_user }}"
+      register: test_output
+
+    - name: Display worker test output
+      debug:
+        var: test_output.stdout_lines
+
+    - name: Display worker configuration summary
+      debug:
+        msg:
+          - "Jenkins Worker Configuration Complete!"
+          - "Worker IP: {{ ansible_default_ipv4.address }}"
+          - "Jenkins User: {{ jenkins_user }}"
+          - "Jenkins Home: {{ jenkins_home }}"
+          - "Java Version: {{ java_version.stderr_lines[0] if java_version.stderr_lines else 'Unknown' }}"
+          - "Docker Version: {{ docker_version.stdout if docker_version.stdout else 'Unknown' }}"
+          - ""
+          - "Next steps:"
+          - "1. Add this node in Jenkins Master at {{ jenkins_master_url }}"
+          - "2. Use SSH connection method with host: {{ ansible_default_ipv4.address }}"
+          - "3. Set remote directory to: {{ jenkins_home }}"
+          - "4. Use jenkins user for connection"

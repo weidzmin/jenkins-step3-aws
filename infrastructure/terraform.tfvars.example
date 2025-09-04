@@ -1,0 +1,21 @@
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and update with your values
+
+aws_region    = "us-east-1"
+project_name  = "jenkins-step3"
+environment   = "dev"
+
+# Network configuration
+vpc_cidr            = "10.0.0.0/16"
+public_subnet_cidr  = "10.0.1.0/24"
+private_subnet_cidr = "10.0.2.0/24"
+
+# Instance configuration (Free tier eligible)
+jenkins_master_instance_type = "t2.micro"
+jenkins_worker_instance_type = "t2.micro"
+spot_price                   = "0.01"
+
+# SSH Key - Replace with your actual public key
+# Generate with: ssh-keygen -t rsa -b 4096 -C "your-email@domain.com"
+# Then copy content of ~/.ssh/id_rsa.pub (or your key file)
+ssh_public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC... your-email@domain.com"

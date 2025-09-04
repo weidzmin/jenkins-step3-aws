@@ -1,0 +1,387 @@
+pipeline {
+    agent { label 'worker-node' }
+    
+    environment {
+        // Environment variables
+        PROJECT_NAME = 'step3-demo-app'
+        BUILD_NUMBER = "${BUILD_NUMBER}"
+        GIT_COMMIT = "${GIT_COMMIT}"
+    }
+    
+    options {
+        // Keep only last 10 builds
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // Timeout for the entire pipeline
+        timeout(time: 30, unit: 'MINUTES')
+        // Skip default checkout
+        skipDefaultCheckout()
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source code...'
+                checkout scm
+                script {
+                    // Get commit information
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                }
+                echo "Checked out commit: ${env.GIT_COMMIT_SHORT}"
+            }
+        }
+        
+        stage('Environment Info') {
+            steps {
+                echo 'Gathering environment information...'
+                sh '''
+                    echo "=== System Information ==="
+                    uname -a
+                    echo ""
+                    echo "=== Java Version ==="
+                    java -version
+                    echo ""
+                    echo "=== Docker Version ==="
+                    docker --version
+                    echo ""
+                    echo "=== Current Directory ==="
+                    pwd
+                    ls -la
+                    echo ""
+                    echo "=== Environment Variables ==="
+                    env | grep -E "(JENKINS|BUILD|GIT)" | sort
+                '''
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo 'Starting build process...'
+                script {
+                    // Create a simple application for demonstration
+                    writeFile file: 'app.py', text: '''#!/usr/bin/env python3
+"""
+Step 3 Demo Application
+A simple Flask web application for Jenkins pipeline demonstration
+"""
+
+from flask import Flask, jsonify
+import os
+import socket
+from datetime import datetime
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return jsonify({
+        'message': 'Hello from Step 3 Demo App!',
+        'timestamp': datetime.now().isoformat(),
+        'hostname': socket.gethostname(),
+        'build_number': os.environ.get('BUILD_NUMBER', 'unknown'),
+        'git_commit': os.environ.get('GIT_COMMIT_SHORT', 'unknown')
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat()
+    })
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+'''
+                    
+                    writeFile file: 'requirements.txt', text: '''Flask==2.3.3
+'''
+                    
+                    writeFile file: 'Dockerfile', text: '''FROM python:3.9-alpine
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY app.py .
+
+EXPOSE 5000
+
+CMD ["python", "app.py"]
+'''
+                }
+                
+                sh '''
+                    echo "=== Building Application ==="
+                    echo "Created application files:"
+                    ls -la app.py requirements.txt Dockerfile
+                    
+                    echo ""
+                    echo "=== Installing Dependencies ==="
+                    python3 -m pip install --user flask
+                    
+                    echo ""
+                    echo "=== Testing Application ==="
+                    timeout 10s python3 app.py &
+                    sleep 5
+                    curl -f http://localhost:5000/health || echo "App not ready yet"
+                    pkill -f app.py || true
+                '''
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                echo 'Running tests...'
+                script {
+                    // Create a simple test file
+                    writeFile file: 'test_app.py', text: '''#!/usr/bin/env python3
+"""
+Simple tests for the demo application
+"""
+
+import sys
+import os
+import json
+from datetime import datetime
+
+def test_app_imports():
+    """Test that app can be imported"""
+    try:
+        import app
+        print("✓ App imports successfully")
+        return True
+    except ImportError as e:
+        print(f"✗ App import failed: {e}")
+        return False
+
+def test_flask_import():
+    """Test that Flask can be imported"""
+    try:
+        from flask import Flask
+        print("✓ Flask imports successfully")
+        return True
+    except ImportError as e:
+        print(f"✗ Flask import failed: {e}")
+        return False
+
+def test_dockerfile_exists():
+    """Test that Dockerfile exists"""
+    if os.path.exists('Dockerfile'):
+        print("✓ Dockerfile exists")
+        return True
+    else:
+        print("✗ Dockerfile not found")
+        return False
+
+def test_requirements_exists():
+    """Test that requirements.txt exists"""
+    if os.path.exists('requirements.txt'):
+        print("✓ requirements.txt exists")
+        return True
+    else:
+        print("✗ requirements.txt not found")
+        return False
+
+def run_tests():
+    """Run all tests"""
+    print("=== Running Tests ===")
+    tests = [
+        test_flask_import,
+        test_app_imports,
+        test_dockerfile_exists,
+        test_requirements_exists
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for test in tests:
+        if test():
+            passed += 1
+        else:
+            failed += 1
+    
+    print(f"\\n=== Test Results ===")
+    print(f"Passed: {passed}")
+    print(f"Failed: {failed}")
+    print(f"Total: {passed + failed}")
+    
+    if failed > 0:
+        sys.exit(1)
+    else:
+        print("\\n✓ All tests passed!")
+
+if __name__ == '__main__':
+    run_tests()
+'''
+                }
+                
+                sh '''
+                    echo "=== Running Unit Tests ==="
+                    python3 test_app.py
+                    
+                    echo ""
+                    echo "=== Static Analysis ==="
+                    echo "Checking Python syntax..."
+                    python3 -m py_compile app.py
+                    python3 -m py_compile test_app.py
+                    echo "✓ Python syntax check passed"
+                    
+                    echo ""
+                    echo "=== Security Check ==="
+                    echo "Checking for common issues..."
+                    if grep -n "debug=True" app.py; then
+                        echo "⚠ Warning: Debug mode found (acceptable for demo)"
+                    fi
+                    echo "✓ Basic security check completed"
+                '''
+            }
+        }
+        
+        stage('Docker Build') {
+            when {
+                expression { 
+                    return sh(script: 'command -v docker', returnStatus: true) == 0 
+                }
+            }
+            steps {
+                echo 'Building Docker image...'
+                sh '''
+                    echo "=== Building Docker Image ==="
+                    IMAGE_TAG="${PROJECT_NAME}:${BUILD_NUMBER}-${GIT_COMMIT_SHORT}"
+                    echo "Building image: $IMAGE_TAG"
+                    
+                    docker build -t "$IMAGE_TAG" .
+                    docker tag "$IMAGE_TAG" "${PROJECT_NAME}:latest"
+                    
+                    echo ""
+                    echo "=== Docker Images ==="
+                    docker images | grep "${PROJECT_NAME}"
+                    
+                    echo ""
+                    echo "=== Testing Docker Container ==="
+                    CONTAINER_ID=$(docker run -d -p 5001:5000 "$IMAGE_TAG")
+                    sleep 5
+                    
+                    if curl -f http://localhost:5001/health; then
+                        echo "✓ Docker container health check passed"
+                    else
+                        echo "✗ Docker container health check failed"
+                    fi
+                    
+                    docker stop "$CONTAINER_ID"
+                    docker rm "$CONTAINER_ID"
+                '''
+            }
+        }
+        
+        stage('Package') {
+            steps {
+                echo 'Creating deployment package...'
+                sh '''
+                    echo "=== Creating Deployment Package ==="
+                    
+                    # Create deployment directory
+                    mkdir -p deploy
+                    
+                    # Copy application files
+                    cp app.py requirements.txt Dockerfile deploy/
+                    
+                    # Create deployment info
+                    cat > deploy/deployment-info.json << EOF
+{
+    "project_name": "${PROJECT_NAME}",
+    "build_number": "${BUILD_NUMBER}",
+    "git_commit": "${GIT_COMMIT_SHORT}",
+    "build_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "jenkins_url": "${JENKINS_URL}",
+    "build_url": "${BUILD_URL}"
+}
+EOF
+                    
+                    # Create simple deployment script
+                    cat > deploy/deploy.sh << 'EOF'
+#!/bin/bash
+echo "Deploying Step 3 Demo Application..."
+echo "Build: $(cat deployment-info.json | grep build_number)"
+echo "Commit: $(cat deployment-info.json | grep git_commit)"
+
+if command -v docker &> /dev/null; then
+    echo "Building and running with Docker..."
+    docker build -t step3-demo-app .
+    echo "Docker image built successfully"
+else
+    echo "Running with Python..."
+    pip3 install -r requirements.txt
+    python3 app.py
+fi
+EOF
+                    
+                    chmod +x deploy/deploy.sh
+                    
+                    # Create archive
+                    tar -czf "${PROJECT_NAME}-${BUILD_NUMBER}.tar.gz" deploy/
+                    
+                    echo ""
+                    echo "=== Package Contents ==="
+                    ls -la deploy/
+                    ls -la *.tar.gz
+                '''
+            }
+        }
+    }
+    
+    post {
+        always {
+            echo 'Pipeline completed!'
+            
+            // Archive artifacts
+            script {
+                try {
+                    archiveArtifacts artifacts: '*.tar.gz,deploy/*', 
+                                   allowEmptyArchive: true,
+                                   fingerprint: true
+                } catch (Exception e) {
+                    echo "Could not archive artifacts: ${e.getMessage()}"
+                }
+            }
+            
+            // Clean workspace
+            sh '''
+                echo "=== Cleaning Up ==="
+                # Remove temporary files
+                rm -f test_app.py
+                
+                # Clean up Docker images (keep latest)
+                if command -v docker &> /dev/null; then
+                    echo "Cleaning old Docker images..."
+                    docker image prune -f || true
+                fi
+                
+                echo "Cleanup completed"
+            '''
+        }
+        
+        success {
+            echo '✓ Pipeline completed successfully!'
+            script {
+                currentBuild.description = "Build ${BUILD_NUMBER} - ${env.GIT_COMMIT_SHORT}"
+            }
+        }
+        
+        failure {
+            echo '✗ Pipeline failed!'
+            script {
+                currentBuild.description = "Failed - Build ${BUILD_NUMBER}"
+            }
+        }
+        
+        unstable {
+            echo '⚠ Pipeline completed with warnings!'
+        }
+    }
+}

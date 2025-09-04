@@ -1,0 +1,11 @@
+[jenkins_master]
+# Update this with your Jenkins master public IP after Terraform deployment
+# jenkins-master ansible_host=YOUR_PUBLIC_IP ansible_user=ec2-user ansible_ssh_private_key_file=~/.ssh/your-key.pem
+
+[jenkins_worker]  
+# Update this with your Jenkins worker private IP after Terraform deployment
+# jenkins-worker ansible_host=YOUR_PRIVATE_IP ansible_user=ec2-user ansible_ssh_private_key_file=~/.ssh/your-key.pem ansible_ssh_common_args='-o ProxyJump=ec2-user@YOUR_MASTER_PUBLIC_IP'
+
+[all:vars]
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+ansible_python_interpreter=/usr/bin/python3

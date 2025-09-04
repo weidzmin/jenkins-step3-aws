@@ -1,0 +1,204 @@
+---
+- name: Install and Configure Jenkins with Nginx
+  hosts: jenkins_master
+  become: yes
+  vars:
+    jenkins_admin_username: "admin"
+    jenkins_admin_password: "admin123"
+    jenkins_port: 8080
+    nginx_server_name: "{{ ansible_default_ipv4.address }}"
+    
+  tasks:
+    - name: Update system packages
+      yum:
+        name: '*'
+        state: latest
+        update_cache: yes
+
+    - name: Install required packages
+      yum:
+        name:
+          - wget
+          - curl
+          - git
+          - java-11-openjdk
+          - java-11-openjdk-devel
+          - nginx
+        state: present
+
+    - name: Add Jenkins repository
+      get_url:
+        url: https://pkg.jenkins.io/redhat-stable/jenkins.repo
+        dest: /etc/yum.repos.d/jenkins.repo
+        mode: '0644'
+
+    - name: Import Jenkins GPG key
+      rpm_key:
+        state: present
+        key: https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+
+    - name: Install Jenkins
+      yum:
+        name: jenkins
+        state: present
+
+    - name: Create Jenkins home directory
+      file:
+        path: /var/lib/jenkins
+        state: directory
+        owner: jenkins
+        group: jenkins
+        mode: '0755'
+
+    - name: Configure Jenkins default settings
+      lineinfile:
+        path: /etc/sysconfig/jenkins
+        regexp: '^JENKINS_PORT='
+        line: 'JENKINS_PORT="{{ jenkins_port }}"'
+        backup: yes
+
+    - name: Configure Jenkins Java options
+      lineinfile:
+        path: /etc/sysconfig/jenkins
+        regexp: '^JENKINS_JAVA_OPTIONS='
+        line: 'JENKINS_JAVA_OPTIONS="-Djava.awt.headless=true -Xmx256m -XX:+UseG1GC -Djenkins.install.runSetupWizard=false"'
+        backup: yes
+
+    - name: Start and enable Jenkins service
+      systemd:
+        name: jenkins
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Wait for Jenkins to start up
+      wait_for:
+        port: "{{ jenkins_port }}"
+        delay: 10
+        timeout: 60
+
+    - name: Get Jenkins initial admin password
+      slurp:
+        src: /var/lib/jenkins/secrets/initialAdminPassword
+      register: jenkins_initial_password
+      ignore_errors: yes
+
+    - name: Display Jenkins initial password
+      debug:
+        msg: "Jenkins initial admin password: {{ jenkins_initial_password.content | b64decode | trim }}"
+      when: jenkins_initial_password is succeeded
+
+    - name: Install Jenkins CLI
+      get_url:
+        url: "http://localhost:{{ jenkins_port }}/jnlpJars/jenkins-cli.jar"
+        dest: /opt/jenkins-cli.jar
+        mode: '0755'
+      retries: 5
+      delay: 10
+
+    - name: Configure Nginx main configuration
+      copy:
+        content: |
+          user nginx;
+          worker_processes auto;
+          error_log /var/log/nginx/error.log warn;
+          pid /run/nginx.pid;
+
+          events {
+              worker_connections 1024;
+          }
+
+          http {
+              log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                                '$status $body_bytes_sent "$http_referer" '
+                                '"$http_user_agent" "$http_x_forwarded_for"';
+
+              access_log  /var/log/nginx/access.log  main;
+
+              sendfile            on;
+              tcp_nopush          on;
+              tcp_nodelay         on;
+              keepalive_timeout   65;
+              types_hash_max_size 4096;
+
+              include             /etc/nginx/mime.types;
+              default_type        application/octet-stream;
+
+              include /etc/nginx/conf.d/*.conf;
+              include /etc/nginx/sites-enabled/*;
+          }
+        dest: /etc/nginx/nginx.conf
+        backup: yes
+
+    - name: Create Nginx sites-available directory
+      file:
+        path: /etc/nginx/sites-available
+        state: directory
+        mode: '0755'
+
+    - name: Create Nginx sites-enabled directory
+      file:
+        path: /etc/nginx/sites-enabled
+        state: directory
+        mode: '0755'
+
+    - name: Configure Nginx reverse proxy for Jenkins
+      template:
+        src: jenkins-nginx.conf.j2
+        dest: /etc/nginx/sites-available/jenkins
+        backup: yes
+      notify: restart nginx
+
+    - name: Enable Jenkins site in Nginx
+      file:
+        src: /etc/nginx/sites-available/jenkins
+        dest: /etc/nginx/sites-enabled/jenkins
+        state: link
+      notify: restart nginx
+
+    - name: Remove default Nginx configuration
+      file:
+        path: /etc/nginx/conf.d/default.conf
+        state: absent
+      notify: restart nginx
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: false
+
+    - name: Start and enable Nginx service
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Open firewall for HTTP
+      firewalld:
+        service: http
+        permanent: yes
+        state: enabled
+        immediate: yes
+      ignore_errors: yes
+
+    - name: Open firewall for HTTPS
+      firewalld:
+        service: https
+        permanent: yes
+        state: enabled
+        immediate: yes
+      ignore_errors: yes
+
+    - name: Display Jenkins access information
+      debug:
+        msg: 
+          - "Jenkins is now accessible at:"
+          - "Direct access: http://{{ ansible_default_ipv4.address }}:{{ jenkins_port }}"
+          - "Nginx proxy: http://{{ ansible_default_ipv4.address }}"
+          - "Initial admin password: {{ jenkins_initial_password.content | b64decode | trim if jenkins_initial_password is succeeded else 'Check /var/lib/jenkins/secrets/initialAdminPassword' }}"
+
+  handlers:
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted

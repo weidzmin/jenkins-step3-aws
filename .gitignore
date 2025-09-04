@@ -1,0 +1,52 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+*.tfvars
+!terraform.tfvars.example
+.terraform/
+.terraform.lock.hcl
+tfplan
+
+# Ansible files
+ansible.retry
+*.retry
+
+# SSH keys
+*.pem
+*_rsa
+*_rsa.pub
+id_*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+
+# Sensitive information
+secrets.yaml
+secrets.yml
+.env
+.env.local
+
+# Screenshots (remove this line if you want to commit screenshots)
+screenshots/*.png
+screenshots/*.jpg
+screenshots/*.jpeg
