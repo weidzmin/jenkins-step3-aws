@@ -60,7 +60,7 @@ output "security_group_jenkins_worker_id" {
 
 output "ssh_connection_jenkins_master" {
   description = "SSH connection command for Jenkins master"
-  value       = "ssh -i ~/.ssh/your-key.pem ec2-user@${aws_instance.jenkins_master.public_ip}"
+  value       = "ssh -i C:/Users/Kot/.ssh/jenkins-step3-key ec2-user@${aws_instance.jenkins_master.public_ip}"
 }
 
 output "jenkins_web_url" {

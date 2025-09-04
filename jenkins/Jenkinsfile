@@ -1,12 +1,12 @@
 pipeline {
-    agent { label 'worker-node' }
+    agent { label 'master' }
     
     environment {
         // Environment variables
         PROJECT_NAME = 'step3-jenkins-aws'
         BUILD_NUMBER = "${BUILD_NUMBER}"
         GIT_COMMIT = "${GIT_COMMIT}"
-        GITHUB_REPO = 'https://github.com/YOUR-USERNAME/jenkins-step3-aws.git' // Замени на свой репозиторий
+        GITHUB_REPO = 'https://github.com/weidzmin/jenkins-step3-aws/' 
     }
     
     options {

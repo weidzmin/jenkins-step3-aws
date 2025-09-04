@@ -1,4 +1,4 @@
-# Provider configuration
+
 terraform {
   required_providers {
     aws = {
@@ -14,25 +14,25 @@ terraform {
   
   # Backend configuration - update with your bucket name after S3 backend creation
   backend "s3" {
-    # bucket         = "your-bucket-name-here"  # Replace with actual bucket name
-    # key            = "jenkins-infrastructure/terraform.tfstate"
-    # region         = "us-east-1"
-    # dynamodb_table = "your-table-name-here"  # Replace with actual table name
-    # encrypt        = true
+     bucket         = "jenkins-step3-terraform-state-53ce5f8b"  
+     key            = "jenkins-infrastructure/terraform.tfstate"
+     region         = "us-east-1"
+     dynamodb_table = "jenkins-step3-terraform-state-lock"  
+     encrypt        = true
   }
 }
 
-# Configure the AWS Provider
+
 provider "aws" {
   region = var.aws_region
 }
 
-# Data source for availability zones
+
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# Data source for latest Amazon Linux 2 AMI
+
 data "aws_ami" "amazon_linux" {
   most_recent = true
   owners      = ["amazon"]
@@ -48,7 +48,7 @@ data "aws_ami" "amazon_linux" {
   }
 }
 
-# Create VPC
+
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -60,7 +60,7 @@ resource "aws_vpc" "main" {
   }
 }
 
-# Create Internet Gateway
+
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -364,40 +364,7 @@ resource "aws_instance" "jenkins_master" {
   }
 }
 
-# Launch template for Jenkins worker (spot instance)
-resource "aws_launch_template" "jenkins_worker" {
-  name_prefix   = "${var.project_name}-jenkins-worker-"
-  image_id      = data.aws_ami.amazon_linux.id
-  instance_type = var.jenkins_worker_instance_type
-  key_name      = aws_key_pair.main.key_name
-
-  vpc_security_group_ids = [aws_security_group.jenkins_worker.id]
-  
-  user_data = base64encode(local.jenkins_worker_user_data)
-
-  block_device_mappings {
-    device_name = "/dev/xvda"
-    ebs {
-      volume_type = "gp3"
-      volume_size = 8
-      encrypted   = true
-    }
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-    tags = {
-      Name        = "${var.project_name}-jenkins-worker"
-      Environment = var.environment
-      Type        = "Jenkins-Worker"
-    }
-  }
-
-  tags = {
-    Name        = "${var.project_name}-jenkins-worker-template"
-    Environment = var.environment
-  }
-}
+# Launch template removed - using direct spot instance configuration
 
 # Jenkins Worker EC2 spot instance
 resource "aws_spot_instance_request" "jenkins_worker" {
@@ -406,15 +373,24 @@ resource "aws_spot_instance_request" "jenkins_worker" {
   spot_type                      = "one-time"
   instance_interruption_behavior = "terminate"
   
-  launch_template {
-    id      = aws_launch_template.jenkins_worker.id
-    version = "$Latest"
-  }
+  # Direct instance configuration (instead of launch template)
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = var.jenkins_worker_instance_type
+  key_name      = aws_key_pair.main.key_name
+  subnet_id     = aws_subnet.private.id
+  vpc_security_group_ids = [aws_security_group.jenkins_worker.id]
   
-  subnet_id = aws_subnet.private.id
+  user_data = base64encode(local.jenkins_worker_user_data)
+
+  root_block_device {
+    volume_type = "gp3"
+    volume_size = 8
+    encrypted   = true
+  }
 
   tags = {
-    Name        = "${var.project_name}-jenkins-worker-spot-request"
+    Name        = "${var.project_name}-jenkins-worker-spot"
     Environment = var.environment
+    Type        = "Jenkins-Worker"
   }
 }
