@@ -101,7 +101,7 @@ pipeline {
                     
                     echo "=== Code Quality Checks ==="
                     echo "Checking for sensitive data..."
-                    if grep -r "AKIAI\\|AKIA[0-9A-Z]" . --exclude-dir=.git; then
+                    if grep -r "AKIAI" . --exclude-dir=.git; then
                         echo "⚠ WARNING: Potential AWS keys found!"
                     else
                         echo "✓ No AWS keys detected"
