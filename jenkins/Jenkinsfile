@@ -556,7 +556,8 @@ if __name__ == '__main__':
                     
                     echo "✓ Docker simulation completed"
                 '''
-        
+            }
+        }
         stage('Package and Archive') {
             steps {
                 echo 'Creating deployment package...'
